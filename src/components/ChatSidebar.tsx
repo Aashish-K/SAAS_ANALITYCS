@@ -2,7 +2,15 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport, getToolName, isToolUIPart } from 'ai';
+import {
+  DefaultChatTransport,
+  getToolName,
+  isTextUIPart,
+  isToolUIPart,
+  type DynamicToolUIPart,
+  type ToolUIPart,
+  type UIMessage,
+} from 'ai';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useDashboard } from '@/context/DashboardContext';
@@ -16,21 +24,15 @@ import DataTable from './DataTable';
 import { QueryResult } from '@/lib/chart-types';
 import { Send, Sparkles, Loader2, ArrowRight } from 'lucide-react';
 
+type ChatMessagePart = UIMessage['parts'][number];
+
 interface ToolOutput {
   error?: string;
   visualization?: QueryResult;
   [key: string]: unknown;
 }
 
-type ToolPart = {
-  type: string;
-  toolCallId?: string;
-  toolName?: string;
-  state?: string;
-  output?: unknown;
-  errorText?: string;
-  text?: string;
-};
+type ToolInvocationPart = ToolUIPart | DynamicToolUIPart;
 
 const LOADING_PHRASES = [
   'Checking your command...',
@@ -66,20 +68,20 @@ function visualizationKey(viz: QueryResult): string {
   return JSON.stringify(viz);
 }
 
-function messageHasCompletedSqlQuery(parts: unknown[] | undefined): boolean {
+function messageHasCompletedSqlQuery(parts: ChatMessagePart[] | undefined): boolean {
   if (!parts) return false;
   return parts.some(
     (part) =>
-      isToolUIPart(part as ToolPart) &&
-      getToolName(part as ToolPart) === 'runSqlQuery' &&
-      (part as ToolPart).state === 'output-available'
+      isToolUIPart(part) &&
+      getToolName(part) === 'runSqlQuery' &&
+      part.state === 'output-available'
   );
 }
 
-function getTextContent(message: { parts?: unknown[]; content?: string }): string {
+function getTextContent(message: { parts?: ChatMessagePart[]; content?: string }): string {
   if (message.parts && Array.isArray(message.parts)) {
     return message.parts
-      .filter((part): part is ToolPart => (part as ToolPart).type === 'text')
+      .filter(isTextUIPart)
       .map((part) => part.text || '')
       .join('');
   }
@@ -88,16 +90,16 @@ function getTextContent(message: { parts?: unknown[]; content?: string }): strin
 
 function messageHasVisibleContent(message: {
   role?: string;
-  parts?: unknown[];
+  parts?: ChatMessagePart[];
   content?: string;
 }): boolean {
   const content = getTextContent(message);
   const parts = message.parts ?? [];
   const hasQueryVisualization = parts.some((part) => {
-    if (!isToolUIPart(part as ToolPart)) return false;
-    if (getToolName(part as ToolPart) !== 'runSqlQuery') return false;
-    if ((part as ToolPart).state !== 'output-available') return false;
-    const output = (part as ToolPart).output as ToolOutput | undefined;
+    if (!isToolUIPart(part)) return false;
+    if (getToolName(part) !== 'runSqlQuery') return false;
+    if (part.state !== 'output-available') return false;
+    const output = part.output as ToolOutput | undefined;
     return Boolean(output?.visualization && !output.error);
   });
   const showTextContent =
@@ -108,22 +110,21 @@ function messageHasVisibleContent(message: {
   const seenVisualizations = new Set<string>();
 
   for (const part of parts) {
-    const typedPart = part as ToolPart;
-    if (typedPart.type === 'text') continue;
-    if (!isToolUIPart(typedPart)) continue;
+    if (isTextUIPart(part)) continue;
+    if (!isToolUIPart(part)) continue;
 
-    const toolName = getToolName(typedPart);
+    const toolName = getToolName(part);
 
     if (
       hasCompletedSqlQuery &&
       toolName === 'runSqlQuery' &&
-      (typedPart.state === 'input-streaming' || typedPart.state === 'input-available')
+      (part.state === 'input-streaming' || part.state === 'input-available')
     ) {
       continue;
     }
 
-    if (toolName === 'runSqlQuery' && typedPart.state === 'output-available') {
-      const output = typedPart.output as ToolOutput | undefined;
+    if (toolName === 'runSqlQuery' && part.state === 'output-available') {
+      const output = part.output as ToolOutput | undefined;
       const viz = output?.visualization;
       if (viz) {
         const key = visualizationKey(viz);
@@ -132,13 +133,13 @@ function messageHasVisibleContent(message: {
       }
     }
 
-    if (typedPart.state === 'input-streaming' || typedPart.state === 'input-available') {
+    if (part.state === 'input-streaming' || part.state === 'input-available') {
       return true;
     }
-    if (typedPart.state === 'output-error') return true;
-    if (typedPart.state !== 'output-available') continue;
+    if (part.state === 'output-error') return true;
+    if (part.state !== 'output-available') continue;
 
-    const result = typedPart.output as ToolOutput | undefined;
+    const result = part.output as ToolOutput | undefined;
     if (!result) continue;
     if (result.error) return true;
     if (toolName === 'runSqlQuery' && result.visualization) return true;
@@ -152,7 +153,7 @@ function ToolPartView({
   toolName,
   loadingPhrase,
 }: {
-  part: ToolPart;
+  part: ToolInvocationPart;
   toolName: string;
   loadingPhrase: string;
 }) {
@@ -392,27 +393,24 @@ export default function ChatSidebar() {
                     {parts.length > 0 && (
                       <div className="tool-invocations-list">
                         {parts.map((part, index) => {
-                          const typedPart = part as ToolPart;
+                          if (isTextUIPart(part)) return null;
+                          if (!isToolUIPart(part)) return null;
 
-                          if (typedPart.type === 'text') return null;
-
-                          if (!isToolUIPart(typedPart)) return null;
-
-                          const toolName = getToolName(typedPart);
+                          const toolName = getToolName(part);
 
                           if (
                             hasCompletedSqlQuery &&
                             toolName === 'runSqlQuery' &&
-                            (typedPart.state === 'input-streaming' || typedPart.state === 'input-available')
+                            (part.state === 'input-streaming' || part.state === 'input-available')
                           ) {
                             return null;
                           }
 
                           if (
                             toolName === 'runSqlQuery' &&
-                            typedPart.state === 'output-available'
+                            part.state === 'output-available'
                           ) {
-                            const output = typedPart.output as ToolOutput | undefined;
+                            const output = part.output as ToolOutput | undefined;
                             const viz = output?.visualization;
                             if (viz) {
                               const key = visualizationKey(viz);
@@ -423,8 +421,8 @@ export default function ChatSidebar() {
 
                           return (
                             <ToolPartView
-                              key={typedPart.toolCallId || `${toolName}-${index}`}
-                              part={typedPart}
+                              key={part.toolCallId || `${toolName}-${index}`}
+                              part={part}
                               toolName={toolName}
                               loadingPhrase={loadingPhrase}
                             />
