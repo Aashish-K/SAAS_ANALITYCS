@@ -1,0 +1,8 @@
+Date,Product,Category,Sales,Returns
+2026-01-01,Widget A,Widgets,150,5
+2026-01-02,Widget B,Widgets,220,12
+2026-01-03,Gadget A,Gadgets,310,2
+2026-01-04,Gadget B,Gadgets,90,15
+2026-01-05,Widget A,Widgets,180,0
+2026-01-06,Widget B,Widgets,250,8
+2026-01-07,Gadget A,Gadgets,400,20
