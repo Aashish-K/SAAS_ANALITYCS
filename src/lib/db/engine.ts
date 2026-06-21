@@ -242,15 +242,6 @@ export function setCachedSchema(schema: DatasetSchema | null): void {
   getStore().schema = schema;
 }
 
-export function getCachedSchema(): DatasetSchema | null {
-  return getStore().schema;
-}
-
-export function hasActiveDatabase(): boolean {
-  const store = getStore();
-  return store.db !== null || store.schema !== null;
-}
-
 export async function clearDatabase(): Promise<void> {
   const sessionId = getCurrentSessionId();
   const store = getStore(sessionId);
@@ -332,8 +323,4 @@ export async function getDatasetDescription(): Promise<DatasetDescription | null
     sampleRows: sampleResult.rows,
     summary: `Table "${DATASET_TABLE}" has ${store.schema.rowCount} rows. Columns: ${columnSummary}. Always double-quote column names in SQL.`,
   };
-}
-
-export async function queryForDashboard(sql: string): Promise<QueryResultSet> {
-  return executeQuery(sql);
 }

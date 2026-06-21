@@ -1,7 +1,7 @@
 import type { ChartData } from '@/lib/chart-types';
 import type { DashboardMetric, DatasetSchema } from '@/lib/data-store';
 
-export const BROWSER_DATASET_META_KEY = 'sd_dataset_meta';
+const BROWSER_DATASET_META_KEY = 'sd_dataset_meta';
 
 export interface BrowserDatasetMeta {
   schema: DatasetSchema;
@@ -103,7 +103,7 @@ export async function saveBrowserDataset(bundle: BrowserDatasetBundle): Promise<
   await idbSet(SQLITE_STORE, SQLITE_KEY, base64ToArrayBuffer(sqliteBase64));
 }
 
-export async function loadBrowserDataset(): Promise<BrowserDatasetBundle | null> {
+async function loadBrowserDataset(): Promise<BrowserDatasetBundle | null> {
   if (typeof window === 'undefined') return null;
 
   const rawMeta = localStorage.getItem(BROWSER_DATASET_META_KEY);

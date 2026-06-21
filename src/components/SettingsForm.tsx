@@ -1,9 +1,13 @@
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { useState, useTransition, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateAiSettingsAction, clearDatasetAction } from '@/app/actions';
 import { clearBrowserDataset } from '@/lib/client/browser-dataset-storage';
+import {
+  loadBrowserAiConfig,
+  saveBrowserAiConfig,
+} from '@/lib/client/browser-ai-config-storage';
 import { Settings, Trash2, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
 interface SettingsFormProps {
@@ -26,6 +30,14 @@ export default function SettingsForm({
 
   const [isClearing, startClearTransition] = useTransition();
 
+  useEffect(() => {
+    const saved = loadBrowserAiConfig();
+    if (saved) {
+      setModelId(saved.modelId);
+      setTemperature(saved.temperature);
+    }
+  }, []);
+
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -34,6 +46,7 @@ export default function SettingsForm({
     startTransition(async () => {
       const res = await updateAiSettingsAction(modelId, Number(temperature));
       if (res.success) {
+        saveBrowserAiConfig({ modelId, temperature: Number(temperature) });
         setSuccess('AI Settings updated successfully!');
       } else {
         setError('Failed to update AI Settings.');

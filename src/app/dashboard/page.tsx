@@ -3,7 +3,7 @@ import { hydrateDatasetFromStorage } from '@/lib/data-store';
 import UploadForm from '@/components/UploadForm';
 import DataTable from '@/components/DataTable';
 import DashboardCharts from '@/components/DashboardCharts';
-import { ensureDatabaseReady, queryForDashboard, buildDashboardSql } from '@/lib/db';
+import { ensureDatabaseReady, executeQuery } from '@/lib/db';
 import { generateDashboardMetrics } from '@/lib/dashboard-metrics';
 import { generateDashboardCharts } from '@/lib/dashboard-charts';
 import { runWithSession } from '@/lib/session';
@@ -19,7 +19,7 @@ export default async function DashboardPage() {
         <div className="main-layout">
           <main className="content-area flex flex-col justify-center items-center">
             <div className="page-title-section text-center" style={{ textAlign: 'center', marginBottom: '2rem' }}>
-              <h1 className="page-title">SaaS Analytics Dashboard</h1>
+              <h1 className="page-title">AI Analytics Dashboard</h1>
               <p className="page-subtitle">Upload your business data to begin exploring insights with AI</p>
             </div>
             <UploadForm />
@@ -43,7 +43,7 @@ export default async function DashboardPage() {
 
     let previewData: { columns: string[]; rows: Record<string, unknown>[] } | null = null;
     try {
-      const preview = await queryForDashboard(buildDashboardSql('preview', {}));
+      const preview = await executeQuery('SELECT * FROM dataset LIMIT 25');
       previewData = { columns: preview.columns, rows: preview.rows as Record<string, unknown>[] };
     } catch {
       previewData = null;
@@ -53,7 +53,7 @@ export default async function DashboardPage() {
       <div className="main-layout">
         <main className="content-area">
           <div className="page-title-section">
-            <h1 className="page-title">Business Analytics Overview</h1>
+            <h1 className="page-title">AI Analytics Overview</h1>
             <p className="page-subtitle">AI-selected KPIs and charts tailored to your uploaded dataset</p>
           </div>
 

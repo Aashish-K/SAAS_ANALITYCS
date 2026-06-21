@@ -2,29 +2,73 @@
 
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { hasBrowserDataset, syncBrowserDatasetToServer } from '@/lib/client/browser-dataset-storage';
+import { useBootstrap } from '@/context/BootstrapContext';
+import {
+  hasBrowserDataset,
+  syncBrowserDatasetToServer,
+} from '@/lib/client/browser-dataset-storage';
+import {
+  loadBrowserAiConfig,
+  syncBrowserAiConfigToServer,
+} from '@/lib/client/browser-ai-config-storage';
 
-export default function DatasetBootstrap() {
+export default function AppBootstrap() {
   const router = useRouter();
-  const syncedRef = useRef(false);
+  const { setIsRestoringDataset } = useBootstrap();
+  const bootstrappedRef = useRef(false);
 
   useEffect(() => {
-    if (syncedRef.current || !hasBrowserDataset()) {
+    if (bootstrappedRef.current) {
       return;
     }
+    bootstrappedRef.current = true;
 
-    syncedRef.current = true;
+    let cancelled = false;
 
-    syncBrowserDatasetToServer()
-      .then((ok) => {
-        if (ok) {
-          router.refresh();
+    async function bootstrap() {
+      let shouldRefresh = false;
+
+      const aiConfig = loadBrowserAiConfig();
+      if (aiConfig) {
+        try {
+          const synced = await syncBrowserAiConfigToServer();
+          if (synced) {
+            shouldRefresh = true;
+          }
+        } catch {
+          // keep going — dataset restore may still succeed
         }
-      })
-      .catch(() => {
-        syncedRef.current = false;
-      });
-  }, [router]);
+      }
+
+      if (hasBrowserDataset()) {
+        setIsRestoringDataset(true);
+
+        try {
+          const synced = await syncBrowserDatasetToServer();
+          if (!cancelled && synced) {
+            shouldRefresh = true;
+          }
+        } catch {
+          // fall through to hide loading state
+        } finally {
+          if (!cancelled) {
+            setIsRestoringDataset(false);
+          }
+        }
+      }
+
+      if (!cancelled && shouldRefresh) {
+        router.refresh();
+      }
+    }
+
+    bootstrap();
+
+    return () => {
+      cancelled = true;
+      setIsRestoringDataset(false);
+    };
+  }, [router, setIsRestoringDataset]);
 
   return null;
 }

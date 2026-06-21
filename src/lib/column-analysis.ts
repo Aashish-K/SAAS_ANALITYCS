@@ -4,12 +4,12 @@ import { quoteSqlIdentifier } from '@/lib/db/result-formatter';
 const ID_COLUMN_PATTERN = /(^|_)(id|uuid|key|ref|code|sku|task.?id|order.?id|customer.?id)(s?)$/i;
 const ID_VALUE_PATTERN = /^[A-Za-z]+[-_]?\d+$/i;
 
-export function isIdLikeColumn(name: string): boolean {
+function isIdLikeColumn(name: string): boolean {
   const n = name.trim();
   return ID_COLUMN_PATTERN.test(n) || n.toLowerCase() === 'id';
 }
 
-export function isIdLikeValue(val: string): boolean {
+function isIdLikeValue(val: string): boolean {
   return ID_VALUE_PATTERN.test(val.trim());
 }
 

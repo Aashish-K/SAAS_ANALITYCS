@@ -333,7 +333,7 @@ export default function ChatSidebar() {
       <div className="chat-header">
         <div className="chat-header-title">
           <Sparkles className="icon-sparkles" />
-          <span>AI Insight Assistant</span>
+          <span>AI Analytics Assistant</span>
         </div>
         <p className="chat-header-subtitle">Ask analytical questions about your CSV data</p>
       </div>

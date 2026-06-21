@@ -81,13 +81,6 @@ export function setDatasetSchema(
   session.dataset = { schema, dashboardMetrics, dashboardCharts };
 }
 
-export function setDashboardMetrics(metrics: DashboardMetric[]): void {
-  const session = getSessionData(getCurrentSessionId());
-  if (session.dataset) {
-    session.dataset.dashboardMetrics = metrics;
-  }
-}
-
 export function getDataset(): Dataset | null {
   return getSessionData(getCurrentSessionId()).dataset;
 }
@@ -151,9 +144,4 @@ export function getAiConfig() {
 export function setAiConfig(modelId: string, temperature: number): void {
   const session = getSessionData(getCurrentSessionId());
   session.aiConfig = { modelId, temperature };
-}
-
-// Legacy alias kept for gradual migration
-export function setDataset(_rows: CsvRow[], schema: DatasetSchema): void {
-  setDatasetSchema(schema);
 }

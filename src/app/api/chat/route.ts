@@ -72,7 +72,7 @@ export async function POST(req: Request) {
       baseURL: 'https://integrate.api.nvidia.com/v1',
     });
 
-      const systemPrompt = `You are a SaaS Analytics AI Assistant.
+      const systemPrompt = `You are the AI Analytics assistant.
 You help users analyze their uploaded CSV dataset by writing SQL queries and answering natural language questions.
 
 CRITICAL RULES:

@@ -17,7 +17,7 @@ export default function Navbar() {
     <header className="app-header">
       <div className="logo-container">
         <Sparkles className="logo-icon" size={22} />
-        <span>Antigravity SaaS Analytics</span>
+        <span>AI Analytics</span>
       </div>
       <nav className="app-nav">
         {navItems.map(item => {
