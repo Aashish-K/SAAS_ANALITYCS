@@ -8,6 +8,7 @@ import {
 import { hydrateDatasetFromStorage, getAiConfig } from '@/lib/data-store';
 import { getDatasetDescription, executeQuery, ensureDatabaseReady } from '@/lib/db';
 import { formatQueryResult } from '@/lib/db/result-formatter';
+import { runWithKnownSession, resolveSessionId } from '@/lib/session';
 import { z } from 'zod';
 import { QueryResult } from '@/lib/chart-types';
 
@@ -41,11 +42,18 @@ interface RunSqlQueryResult {
 }
 
 export async function POST(req: Request) {
+  const sessionId = await resolveSessionId();
+
   try {
     const body = await req.json();
     const { messages } = body;
 
-    const config = getAiConfig();
+    const { config, dataset, dbReady } = await runWithKnownSession(sessionId, async () => {
+      const dataset = await hydrateDatasetFromStorage();
+      const dbReady = dataset ? await ensureDatabaseReady() : false;
+      return { config: getAiConfig(), dataset, dbReady };
+    });
+
     const modelId = process.env.NVIDIA_MODEL_ID || config.modelId || 'meta/llama-3.1-70b-instruct';
     const temp = config.temperature;
     const apiKey = process.env.NVIDIA_API_KEY || '';
@@ -64,10 +72,7 @@ export async function POST(req: Request) {
       baseURL: 'https://integrate.api.nvidia.com/v1',
     });
 
-    const dataset = await hydrateDatasetFromStorage();
-    const dbReady = dataset ? await ensureDatabaseReady() : false;
-
-    const systemPrompt = `You are a SaaS Analytics AI Assistant.
+      const systemPrompt = `You are a SaaS Analytics AI Assistant.
 You help users analyze their uploaded CSV dataset by writing SQL queries and answering natural language questions.
 
 CRITICAL RULES:
@@ -85,85 +90,89 @@ CRITICAL RULES:
 12. If no dataset is uploaded, politely ask the user to upload a CSV file.
 
 Current dataset status: ${
-      dataset && dbReady
-        ? `A dataset is uploaded with ${dataset.schema.rowCount} rows. Columns: ${dataset.schema.columns.map((c) => `${c.name} (${c.type})`).join(', ')}.`
-        : 'No dataset is currently uploaded.'
-    }`;
+        dataset && dbReady
+          ? `A dataset is uploaded with ${dataset.schema.rowCount} rows. Columns: ${dataset.schema.columns.map((c) => `${c.name} (${c.type})`).join(', ')}.`
+          : 'No dataset is currently uploaded.'
+      }`;
 
-    const modelMessages = await convertToModelMessages(messages);
+      const modelMessages = await convertToModelMessages(messages);
 
-    const result = streamText({
-      model: nvidia.chat(modelId),
-      messages: modelMessages,
-      system: systemPrompt,
-      temperature: temp,
-      maxOutputTokens: 4096,
-      stopWhen: stepCountIs(3),
-      tools: {
-        describeDataset: tool<DescribeDatasetInput, DescribeDatasetResult>({
-          description: 'Inspect the schema, column types, sample rows, and row count of the uploaded dataset.',
-          inputSchema: describeDatasetSchema,
+      const result = streamText({
+        model: nvidia.chat(modelId),
+        messages: modelMessages,
+        system: systemPrompt,
+        temperature: temp,
+        maxOutputTokens: 4096,
+        stopWhen: stepCountIs(3),
+        tools: {
+          describeDataset: tool<DescribeDatasetInput, DescribeDatasetResult>({
+            description: 'Inspect the schema, column types, sample rows, and row count of the uploaded dataset.',
+            inputSchema: describeDatasetSchema,
           execute: async (): Promise<DescribeDatasetResult> => {
-            const ready = await ensureDatabaseReady();
-            if (!ready) {
+            return runWithKnownSession(sessionId, async () => {
+              const ready = await ensureDatabaseReady();
+              if (!ready) {
+                return {
+                  summary: 'No dataset uploaded.',
+                  error: 'No dataset has been uploaded yet. Please tell the user to upload a CSV file.',
+                };
+              }
+
+              const description = await getDatasetDescription();
+              if (!description) {
+                return { summary: 'Failed to read dataset schema.', error: 'Could not read dataset schema.' };
+              }
+
               return {
-                summary: 'No dataset uploaded.',
-                error: 'No dataset has been uploaded yet. Please tell the user to upload a CSV file.',
+                tableName: description.tableName,
+                rowCount: description.rowCount,
+                columns: description.columns,
+                sampleRows: description.sampleRows as Record<string, unknown>[],
+                summary: description.summary,
               };
-            }
-
-            const description = await getDatasetDescription();
-            if (!description) {
-              return { summary: 'Failed to read dataset schema.', error: 'Could not read dataset schema.' };
-            }
-
-            return {
-              tableName: description.tableName,
-              rowCount: description.rowCount,
-              columns: description.columns,
-              sampleRows: description.sampleRows as Record<string, unknown>[],
-              summary: description.summary,
-            };
+            });
           },
-        }),
-        runSqlQuery: tool<RunSqlQueryInput, RunSqlQueryResult>({
-          description: 'Execute a read-only SQL SELECT query against the dataset table and return formatted results for charts or tables.',
-          inputSchema: runSqlQuerySchema,
+          }),
+          runSqlQuery: tool<RunSqlQueryInput, RunSqlQueryResult>({
+            description: 'Execute a read-only SQL SELECT query against the dataset table and return formatted results for charts or tables.',
+            inputSchema: runSqlQuerySchema,
           execute: async ({ sql, title, preferTable }): Promise<RunSqlQueryResult> => {
-            const ready = await ensureDatabaseReady();
-            if (!ready) {
-              return {
-                summary: 'No dataset uploaded.',
-                error: 'No dataset has been uploaded yet. Please tell the user to upload a CSV file.',
-              };
-            }
+            return runWithKnownSession(sessionId, async () => {
+              const ready = await ensureDatabaseReady();
+              if (!ready) {
+                return {
+                  summary: 'No dataset uploaded.',
+                  error: 'No dataset has been uploaded yet. Please tell the user to upload a CSV file.',
+                };
+              }
 
-            try {
-              const result = await executeQuery(sql);
-              const visualization = formatQueryResult(
-                result.columns,
-                result.rows,
-                title,
-                preferTable ?? false
-              );
+              try {
+                const result = await executeQuery(sql);
+                const visualization = formatQueryResult(
+                  result.columns,
+                  result.rows,
+                  title,
+                  preferTable ?? false
+                );
 
-              return {
-                columns: result.columns,
-                rowCount: result.rowCount,
-                visualization,
-                summary: `Query returned ${result.rowCount} row(s) with columns: ${result.columns.join(', ')}.`,
-              };
-            } catch (err: unknown) {
-              const msg = err instanceof Error ? err.message : 'Unknown query error';
-              return {
-                summary: 'Query failed.',
-                error: `SQL execution failed: ${msg}`,
-              };
-            }
+                return {
+                  columns: result.columns,
+                  rowCount: result.rowCount,
+                  visualization,
+                  summary: `Query returned ${result.rowCount} row(s) with columns: ${result.columns.join(', ')}.`,
+                };
+              } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : 'Unknown query error';
+                return {
+                  summary: 'Query failed.',
+                  error: `SQL execution failed: ${msg}`,
+                };
+              }
+            });
           },
-        }),
-      },
-    });
+          }),
+        },
+      });
 
     return result.toUIMessageStreamResponse({
       onError: (error: unknown) => {

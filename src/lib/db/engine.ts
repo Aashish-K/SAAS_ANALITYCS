@@ -8,6 +8,7 @@ import {
   hydrateDatasetFromStorage,
   setDatasetSchema,
 } from '@/lib/data-store';
+import { getCurrentSessionId } from '@/lib/session';
 import { validateAndSanitizeSql } from './sql-validator';
 import { loadDatasetBlob, saveDatasetBlob, deleteAllDatasetStorage } from './persistence';
 
@@ -30,27 +31,45 @@ export interface DatasetDescription {
 
 interface SqliteStore {
   db: Database | null;
-  sqlJs: Awaited<ReturnType<typeof initSqlJs>> | null;
   schema: DatasetSchema | null;
 }
 
-const globalForStore = globalThis as unknown as { __sqliteStore?: SqliteStore };
+interface GlobalSqliteState {
+  sessions: Map<string, SqliteStore>;
+  sqlJs: Awaited<ReturnType<typeof initSqlJs>> | null;
+}
 
-function getStore(): SqliteStore {
-  if (!globalForStore.__sqliteStore) {
-    globalForStore.__sqliteStore = { db: null, sqlJs: null, schema: null };
+const globalForStore = globalThis as unknown as { __sqliteStoreState?: GlobalSqliteState };
+
+function getGlobalState(): GlobalSqliteState {
+  if (!globalForStore.__sqliteStoreState) {
+    globalForStore.__sqliteStoreState = {
+      sessions: new Map(),
+      sqlJs: null,
+    };
   }
-  return globalForStore.__sqliteStore;
+  return globalForStore.__sqliteStoreState;
+}
+
+function getStore(sessionId?: string): SqliteStore {
+  const id = sessionId ?? getCurrentSessionId();
+  const state = getGlobalState();
+  let store = state.sessions.get(id);
+  if (!store) {
+    store = { db: null, schema: null };
+    state.sessions.set(id, store);
+  }
+  return store;
 }
 
 async function getSqlJs() {
-  const store = getStore();
-  if (!store.sqlJs) {
-    store.sqlJs = await initSqlJs({
+  const state = getGlobalState();
+  if (!state.sqlJs) {
+    state.sqlJs = await initSqlJs({
       locateFile: (file) => path.join(process.cwd(), 'node_modules/sql.js/dist', file),
     });
   }
-  return store.sqlJs;
+  return state.sqlJs;
 }
 
 export function quoteIdentifier(name: string): string {
@@ -117,7 +136,8 @@ export async function initDatabaseFromCsv(
   schema: DatasetSchema
 ): Promise<void> {
   const SQL = await getSqlJs();
-  const store = getStore();
+  const sessionId = getCurrentSessionId();
+  const store = getStore(sessionId);
 
   if (store.db) {
     store.db.close();
@@ -152,7 +172,7 @@ export async function initDatabaseFromCsv(
   store.schema = schema;
 
   const exported = db.export();
-  await saveDatasetBlob(exported);
+  await saveDatasetBlob(exported, sessionId);
 }
 
 async function inferSchemaFromBuffer(buffer: Uint8Array): Promise<DatasetSchema | null> {
@@ -184,7 +204,8 @@ async function inferSchemaFromBuffer(buffer: Uint8Array): Promise<DatasetSchema 
 }
 
 export async function ensureDatabaseReady(): Promise<boolean> {
-  const store = getStore();
+  const sessionId = getCurrentSessionId();
+  const store = getStore(sessionId);
   if (store.db && store.schema) {
     return true;
   }
@@ -198,7 +219,7 @@ export async function ensureDatabaseReady(): Promise<boolean> {
     }
   }
 
-  const buffer = await loadDatasetBlob();
+  const buffer = await loadDatasetBlob(sessionId);
   if (buffer) {
     if (!store.schema) {
       const inferredSchema = await inferSchemaFromBuffer(buffer);
@@ -231,13 +252,14 @@ export function hasActiveDatabase(): boolean {
 }
 
 export async function clearDatabase(): Promise<void> {
-  const store = getStore();
+  const sessionId = getCurrentSessionId();
+  const store = getStore(sessionId);
   if (store.db) {
     store.db.close();
     store.db = null;
   }
   store.schema = null;
-  await deleteAllDatasetStorage();
+  await deleteAllDatasetStorage(sessionId);
 }
 
 export async function executeQuery(sql: string): Promise<QueryResultSet> {

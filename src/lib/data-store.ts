@@ -2,6 +2,7 @@ export type ColumnType = 'string' | 'number' | 'date' | 'boolean';
 
 import { ChartData } from '@/lib/chart-types';
 import { loadDatasetMetadata, saveDatasetMetadata } from '@/lib/db/persistence';
+import { getCurrentSessionId } from '@/lib/session';
 
 export interface ColumnSchema {
   name: string;
@@ -30,7 +31,7 @@ export interface DashboardMetric {
   sql: string;
 }
 
-interface GlobalStore {
+interface SessionData {
   dataset: Dataset | null;
   aiConfig: {
     modelId: string;
@@ -38,80 +39,118 @@ interface GlobalStore {
   };
 }
 
-const globalForStore = globalThis as unknown as { __datasetStore?: GlobalStore };
+interface GlobalStoreState {
+  sessions: Map<string, SessionData>;
+  hydrating: Map<string, Promise<Dataset | null>>;
+}
 
-const store: GlobalStore = globalForStore.__datasetStore ?? {
-  dataset: null,
-  aiConfig: {
-    modelId: 'meta/llama-3.1-405b-instruct',
-    temperature: 0.2,
-  },
-};
+const globalForStore = globalThis as unknown as { __datasetStoreState?: GlobalStoreState };
 
-globalForStore.__datasetStore = store;
+function getStoreState(): GlobalStoreState {
+  if (!globalForStore.__datasetStoreState) {
+    globalForStore.__datasetStoreState = {
+      sessions: new Map(),
+      hydrating: new Map(),
+    };
+  }
+  return globalForStore.__datasetStoreState;
+}
 
-let hydrating: Promise<Dataset | null> | null = null;
+function getSessionData(sessionId: string): SessionData {
+  const state = getStoreState();
+  let session = state.sessions.get(sessionId);
+  if (!session) {
+    session = {
+      dataset: null,
+      aiConfig: {
+        modelId: 'meta/llama-3.1-405b-instruct',
+        temperature: 0.2,
+      },
+    };
+    state.sessions.set(sessionId, session);
+  }
+  return session;
+}
 
 export function setDatasetSchema(
   schema: DatasetSchema,
   dashboardMetrics?: DashboardMetric[],
   dashboardCharts?: ChartData[]
 ): void {
-  store.dataset = { schema, dashboardMetrics, dashboardCharts };
+  const session = getSessionData(getCurrentSessionId());
+  session.dataset = { schema, dashboardMetrics, dashboardCharts };
 }
 
 export function setDashboardMetrics(metrics: DashboardMetric[]): void {
-  if (store.dataset) {
-    store.dataset.dashboardMetrics = metrics;
+  const session = getSessionData(getCurrentSessionId());
+  if (session.dataset) {
+    session.dataset.dashboardMetrics = metrics;
   }
 }
 
 export function getDataset(): Dataset | null {
-  return store.dataset;
+  return getSessionData(getCurrentSessionId()).dataset;
 }
 
 export async function hydrateDatasetFromStorage(): Promise<Dataset | null> {
-  if (store.dataset) {
-    return store.dataset;
+  const sessionId = getCurrentSessionId();
+  const session = getSessionData(sessionId);
+
+  if (session.dataset) {
+    return session.dataset;
   }
 
+  const state = getStoreState();
+  let hydrating = state.hydrating.get(sessionId);
   if (!hydrating) {
     hydrating = (async () => {
-      const metadata = await loadDatasetMetadata();
+      const metadata = await loadDatasetMetadata(sessionId);
       if (metadata?.schema) {
-        setDatasetSchema(metadata.schema, metadata.dashboardMetrics, metadata.dashboardCharts);
+        session.dataset = {
+          schema: metadata.schema,
+          dashboardMetrics: metadata.dashboardMetrics,
+          dashboardCharts: metadata.dashboardCharts,
+        };
       }
-      return store.dataset;
+      return session.dataset;
     })().finally(() => {
-      hydrating = null;
+      state.hydrating.delete(sessionId);
     });
+    state.hydrating.set(sessionId, hydrating);
   }
 
   return hydrating;
 }
 
 export async function persistDatasetToStorage(): Promise<void> {
-  if (!store.dataset) {
+  const sessionId = getCurrentSessionId();
+  const session = getSessionData(sessionId);
+  if (!session.dataset) {
     return;
   }
 
-  await saveDatasetMetadata({
-    schema: store.dataset.schema,
-    dashboardMetrics: store.dataset.dashboardMetrics,
-    dashboardCharts: store.dataset.dashboardCharts,
-  });
+  await saveDatasetMetadata(
+    {
+      schema: session.dataset.schema,
+      dashboardMetrics: session.dataset.dashboardMetrics,
+      dashboardCharts: session.dataset.dashboardCharts,
+    },
+    sessionId
+  );
 }
 
 export function clearDataset(): void {
-  store.dataset = null;
+  const sessionId = getCurrentSessionId();
+  getSessionData(sessionId).dataset = null;
 }
 
 export function getAiConfig() {
-  return store.aiConfig;
+  return getSessionData(getCurrentSessionId()).aiConfig;
 }
 
 export function setAiConfig(modelId: string, temperature: number): void {
-  store.aiConfig = { modelId, temperature };
+  const session = getSessionData(getCurrentSessionId());
+  session.aiConfig = { modelId, temperature };
 }
 
 // Legacy alias kept for gradual migration

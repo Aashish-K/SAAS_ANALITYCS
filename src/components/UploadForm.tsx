@@ -3,6 +3,7 @@
 import React, { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { uploadCsvAction } from '@/app/actions';
+import { saveBrowserDataset } from '@/lib/client/browser-dataset-storage';
 import { Upload, FileSpreadsheet, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function UploadForm() {
@@ -36,6 +37,9 @@ export default function UploadForm() {
     startTransition(async () => {
       const res = await uploadCsvAction(formData);
       if (res.success) {
+        if (res.dataset?.sqliteBase64) {
+          await saveBrowserDataset(res.dataset);
+        }
         setSuccess(`Successfully uploaded ${res.rowCount} rows!`);
         setFile(null);
         router.refresh();

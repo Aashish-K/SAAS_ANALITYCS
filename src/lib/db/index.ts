@@ -1,6 +1,7 @@
 export { validateAndSanitizeSql } from './sql-validator';
 export {
   initDatabaseFromCsv,
+  importDatabase,
   executeQuery,
   getDatasetDescription,
   ensureDatabaseReady,

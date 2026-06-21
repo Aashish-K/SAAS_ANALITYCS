@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { updateAiSettingsAction, clearDatasetAction } from '@/app/actions';
+import { clearBrowserDataset } from '@/lib/client/browser-dataset-storage';
 import { Settings, Trash2, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
 interface SettingsFormProps {
@@ -15,6 +17,7 @@ export default function SettingsForm({
   currentTemperature,
   hasDataset,
 }: SettingsFormProps) {
+  const router = useRouter();
   const [modelId, setModelId] = useState(currentModelId);
   const [temperature, setTemperature] = useState(currentTemperature);
   const [isPending, startTransition] = useTransition();
@@ -48,7 +51,9 @@ export default function SettingsForm({
     startClearTransition(async () => {
       const res = await clearDatasetAction();
       if (res.success) {
+        await clearBrowserDataset();
         setSuccess('Dataset cleared successfully!');
+        router.refresh();
       } else {
         setError('Failed to clear dataset.');
       }

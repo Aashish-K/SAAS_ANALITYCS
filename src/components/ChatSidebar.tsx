@@ -22,6 +22,7 @@ import {
 } from './Charts';
 import DataTable from './DataTable';
 import { QueryResult } from '@/lib/chart-types';
+import { syncBrowserDatasetToServer, hasBrowserDataset } from '@/lib/client/browser-dataset-storage';
 import { Send, Sparkles, Loader2, ArrowRight } from 'lucide-react';
 
 type ChatMessagePart = UIMessage['parts'][number];
@@ -282,9 +283,14 @@ export default function ChatSidebar() {
     setInput(e.target.value);
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
+
+    if (hasBrowserDataset()) {
+      await syncBrowserDatasetToServer();
+    }
+
     sendMessage({ text: input });
     setInput('');
   };
