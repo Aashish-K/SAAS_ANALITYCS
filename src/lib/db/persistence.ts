@@ -1,6 +1,15 @@
 import { put, del, head } from '@vercel/blob';
+import type { ChartData } from '@/lib/chart-types';
+import type { DashboardMetric, DatasetSchema } from '@/lib/data-store';
 
 const BLOB_PATHNAME = 'datasets/current.sqlite';
+const METADATA_PATHNAME = 'datasets/metadata.json';
+
+export interface PersistedDatasetMetadata {
+  schema: DatasetSchema;
+  dashboardMetrics?: DashboardMetric[];
+  dashboardCharts?: ChartData[];
+}
 
 export function isBlobConfigured(): boolean {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
@@ -42,6 +51,42 @@ export async function loadDatasetBlob(): Promise<Uint8Array | null> {
   }
 }
 
+export async function saveDatasetMetadata(metadata: PersistedDatasetMetadata): Promise<void> {
+  if (!isBlobConfigured()) {
+    console.warn('[persistence] BLOB_READ_WRITE_TOKEN not set — metadata will only persist in warm server cache.');
+    return;
+  }
+
+  await put(METADATA_PATHNAME, JSON.stringify(metadata), {
+    access: 'public',
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: 'application/json',
+  });
+}
+
+export async function loadDatasetMetadata(): Promise<PersistedDatasetMetadata | null> {
+  if (!isBlobConfigured()) {
+    return null;
+  }
+
+  try {
+    const blobMeta = await head(METADATA_PATHNAME);
+    if (!blobMeta?.url) {
+      return null;
+    }
+
+    const response = await fetch(blobMeta.url);
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as PersistedDatasetMetadata;
+  } catch {
+    return null;
+  }
+}
+
 export async function deleteDatasetBlob(): Promise<void> {
   if (!isBlobConfigured()) {
     return;
@@ -52,4 +97,20 @@ export async function deleteDatasetBlob(): Promise<void> {
   } catch {
     // Blob may not exist yet
   }
+}
+
+export async function deleteDatasetMetadata(): Promise<void> {
+  if (!isBlobConfigured()) {
+    return;
+  }
+
+  try {
+    await del(METADATA_PATHNAME);
+  } catch {
+    // Blob may not exist yet
+  }
+}
+
+export async function deleteAllDatasetStorage(): Promise<void> {
+  await Promise.all([deleteDatasetBlob(), deleteDatasetMetadata()]);
 }

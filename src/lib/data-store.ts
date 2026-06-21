@@ -1,6 +1,7 @@
 export type ColumnType = 'string' | 'number' | 'date' | 'boolean';
 
 import { ChartData } from '@/lib/chart-types';
+import { loadDatasetMetadata, saveDatasetMetadata } from '@/lib/db/persistence';
 
 export interface ColumnSchema {
   name: string;
@@ -47,9 +48,9 @@ const store: GlobalStore = globalForStore.__datasetStore ?? {
   },
 };
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForStore.__datasetStore = store;
-}
+globalForStore.__datasetStore = store;
+
+let hydrating: Promise<Dataset | null> | null = null;
 
 export function setDatasetSchema(
   schema: DatasetSchema,
@@ -67,6 +68,38 @@ export function setDashboardMetrics(metrics: DashboardMetric[]): void {
 
 export function getDataset(): Dataset | null {
   return store.dataset;
+}
+
+export async function hydrateDatasetFromStorage(): Promise<Dataset | null> {
+  if (store.dataset) {
+    return store.dataset;
+  }
+
+  if (!hydrating) {
+    hydrating = (async () => {
+      const metadata = await loadDatasetMetadata();
+      if (metadata?.schema) {
+        setDatasetSchema(metadata.schema, metadata.dashboardMetrics, metadata.dashboardCharts);
+      }
+      return store.dataset;
+    })().finally(() => {
+      hydrating = null;
+    });
+  }
+
+  return hydrating;
+}
+
+export async function persistDatasetToStorage(): Promise<void> {
+  if (!store.dataset) {
+    return;
+  }
+
+  await saveDatasetMetadata({
+    schema: store.dataset.schema,
+    dashboardMetrics: store.dataset.dashboardMetrics,
+    dashboardCharts: store.dataset.dashboardCharts,
+  });
 }
 
 export function clearDataset(): void {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { getDataset } from '@/lib/data-store';
+import { hydrateDatasetFromStorage } from '@/lib/data-store';
 import UploadForm from '@/components/UploadForm';
 import DataTable from '@/components/DataTable';
 import DashboardCharts from '@/components/DashboardCharts';
@@ -10,7 +10,7 @@ import { generateDashboardCharts } from '@/lib/dashboard-charts';
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
-  const dataset = getDataset();
+  const dataset = await hydrateDatasetFromStorage();
 
   if (!dataset) {
     return (

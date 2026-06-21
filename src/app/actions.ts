@@ -9,6 +9,7 @@ import {
   DatasetSchema,
   CsvRow,
   ColumnType,
+  persistDatasetToStorage,
 } from '@/lib/data-store';
 import { initDatabaseFromCsv, clearDatabase, setCachedSchema } from '@/lib/db';
 import { generateDashboardMetrics } from '@/lib/dashboard-metrics';
@@ -127,6 +128,7 @@ export async function uploadCsvAction(formData: FormData) {
     ]);
     setDatasetSchema(schema, dashboardMetrics, dashboardCharts);
     setCachedSchema(schema);
+    await persistDatasetToStorage();
 
     revalidatePath('/dashboard');
     revalidatePath('/drill-down');

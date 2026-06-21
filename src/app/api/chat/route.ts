@@ -5,7 +5,7 @@ import {
   stepCountIs,
   convertToModelMessages,
 } from 'ai';
-import { getDataset, getAiConfig } from '@/lib/data-store';
+import { hydrateDatasetFromStorage, getAiConfig } from '@/lib/data-store';
 import { getDatasetDescription, executeQuery, ensureDatabaseReady } from '@/lib/db';
 import { formatQueryResult } from '@/lib/db/result-formatter';
 import { z } from 'zod';
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
       baseURL: 'https://integrate.api.nvidia.com/v1',
     });
 
-    const dataset = getDataset();
+    const dataset = await hydrateDatasetFromStorage();
     const dbReady = dataset ? await ensureDatabaseReady() : false;
 
     const systemPrompt = `You are a SaaS Analytics AI Assistant.

@@ -1,5 +1,5 @@
 import React from 'react';
-import { getDataset } from '@/lib/data-store';
+import { hydrateDatasetFromStorage } from '@/lib/data-store';
 import ChatSidebar from '@/components/ChatSidebar';
 import DrillDownContainer from '@/components/DrillDownContainer';
 import { ensureDatabaseReady } from '@/lib/db';
@@ -9,7 +9,7 @@ import Link from 'next/link';
 export const dynamic = 'force-dynamic';
 
 export default async function DrillDownPage() {
-  const dataset = getDataset();
+  const dataset = await hydrateDatasetFromStorage();
 
   if (!dataset) {
     return (
@@ -50,11 +50,9 @@ export default async function DrillDownPage() {
 
         <DrillDownContainer initialCharts={initialCharts} />
 
-        {initialCharts.length > 0 && (
-          <div className="drill-down-chat-section">
-            <ChatSidebar />
-          </div>
-        )}
+        <div className="drill-down-chat-section">
+          <ChatSidebar />
+        </div>
       </main>
     </div>
   );

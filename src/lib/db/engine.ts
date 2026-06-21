@@ -1,8 +1,15 @@
 import initSqlJs, { Database, SqlValue } from 'sql.js';
 import path from 'path';
-import { ColumnType, CsvRow, DatasetSchema, getDataset } from '@/lib/data-store';
+import {
+  ColumnType,
+  CsvRow,
+  DatasetSchema,
+  getDataset,
+  hydrateDatasetFromStorage,
+  setDatasetSchema,
+} from '@/lib/data-store';
 import { validateAndSanitizeSql } from './sql-validator';
-import { loadDatasetBlob, saveDatasetBlob, deleteDatasetBlob } from './persistence';
+import { loadDatasetBlob, saveDatasetBlob, deleteAllDatasetStorage } from './persistence';
 
 const DATASET_TABLE = 'dataset';
 const BATCH_SIZE = 500;
@@ -148,13 +155,42 @@ export async function initDatabaseFromCsv(
   await saveDatasetBlob(exported);
 }
 
+async function inferSchemaFromBuffer(buffer: Uint8Array): Promise<DatasetSchema | null> {
+  const SQL = await getSqlJs();
+  const db = new SQL.Database(buffer);
+
+  try {
+    const tableInfo = db.exec(`PRAGMA table_info(${DATASET_TABLE})`);
+    if (!tableInfo.length) {
+      return null;
+    }
+
+    const columns = tableInfo[0].values.map((row) => ({
+      name: String(row[1]),
+      type: appTypeFromSqlite(String(row[2])),
+    }));
+
+    const countResult = db.exec(`SELECT COUNT(*) FROM ${DATASET_TABLE}`);
+    const rowCount = countResult.length ? Number(countResult[0].values[0][0]) : 0;
+
+    return {
+      columns,
+      rowCount,
+      uploadedAt: new Date().toISOString(),
+    };
+  } finally {
+    db.close();
+  }
+}
+
 export async function ensureDatabaseReady(): Promise<boolean> {
   const store = getStore();
   if (store.db && store.schema) {
     return true;
   }
 
-  // Restore schema from metadata store on cold start
+  await hydrateDatasetFromStorage();
+
   if (!store.schema) {
     const dataset = getDataset();
     if (dataset?.schema) {
@@ -162,18 +198,23 @@ export async function ensureDatabaseReady(): Promise<boolean> {
     }
   }
 
-  if (!store.schema) {
-    return false;
-  }
-
   const buffer = await loadDatasetBlob();
-  if (!buffer) {
-    // Blob not available — DB only exists in warm cache after upload
-    return store.db !== null;
+  if (buffer) {
+    if (!store.schema) {
+      const inferredSchema = await inferSchemaFromBuffer(buffer);
+      if (inferredSchema) {
+        store.schema = inferredSchema;
+        setDatasetSchema(inferredSchema);
+      }
+    }
+
+    if (store.schema) {
+      await importDatabase(buffer, store.schema);
+      return true;
+    }
   }
 
-  await importDatabase(buffer, store.schema);
-  return true;
+  return store.db !== null && store.schema !== null;
 }
 
 export function setCachedSchema(schema: DatasetSchema | null): void {
@@ -196,7 +237,7 @@ export async function clearDatabase(): Promise<void> {
     store.db = null;
   }
   store.schema = null;
-  await deleteDatasetBlob();
+  await deleteAllDatasetStorage();
 }
 
 export async function executeQuery(sql: string): Promise<QueryResultSet> {

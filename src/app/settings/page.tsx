@@ -1,12 +1,12 @@
 import React from 'react';
-import { getDataset, getAiConfig } from '@/lib/data-store';
+import { hydrateDatasetFromStorage, getAiConfig } from '@/lib/data-store';
 import SettingsForm from '@/components/SettingsForm';
 import { Database, FileText } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
-  const dataset = getDataset();
+  const dataset = await hydrateDatasetFromStorage();
   const aiConfig = getAiConfig();
 
   return (
